@@ -15,6 +15,7 @@ typedef struct
   long data_modificacao;
   int ordem;
   long offset;
+  int comprimido; // 0 = não comprimido, 1 = comprimido
 } MembroDir;
 
 typedef struct

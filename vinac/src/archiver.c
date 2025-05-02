@@ -4,6 +4,7 @@
 #include <sys/stat.h>
 #include <libgen.h>
 #include "archiver.h"
+#include "../include/lz/lz.h"
 
 void criar_archive(const char *nome_archive)
 {
@@ -51,14 +52,21 @@ void extrair_arquivo(FILE *arquivo, DiretorioArchive *dir, const char **nomes, i
         if (extrair) {
             if (fseek(arquivo, dir->membros[i].offset, SEEK_SET) != 0)
                 continue;
-            long tam = dir->membros[i].tamanho_disco;
-            unsigned char *buffer = malloc(tam);
-            if (!buffer) continue;
-            if (fread(buffer, 1, tam, arquivo) != (size_t)tam) {
-                free(buffer);
+            long tam_comp = dir->membros[i].tamanho_disco;
+            long tam_orig = dir->membros[i].tamanho_original;
+            unsigned char *buffer_comp = malloc(tam_comp);
+            unsigned char *buffer_orig = malloc(tam_orig);
+            if (!buffer_comp || !buffer_orig) {
+                free(buffer_comp);
+                free(buffer_orig);
                 continue;
             }
-            // Extrai apenas o nome base do arquivo
+            if (fread(buffer_comp, 1, tam_comp, arquivo) != (size_t)tam_comp) {
+                free(buffer_comp);
+                free(buffer_orig);
+                continue;
+            }
+            // Descomprime ou copia diretamente
             char nome_base[MAX_NOME];
             strncpy(nome_base, dir->membros[i].nome, MAX_NOME);
             nome_base[MAX_NOME-1] = '\0';
@@ -66,12 +74,21 @@ void extrair_arquivo(FILE *arquivo, DiretorioArchive *dir, const char **nomes, i
             FILE *out = fopen(base, "wb");
             if (!out) {
                 fprintf(stderr, "Não foi possível criar arquivo: %s\n", base);
-                free(buffer);
+                free(buffer_comp);
+                free(buffer_orig);
                 continue;
             }
-            fwrite(buffer, 1, tam, out);
+            if (dir->membros[i].comprimido) {
+                // Descomprime
+                LZ_Uncompress(buffer_comp, buffer_orig, (unsigned int)tam_comp);
+                fwrite(buffer_orig, 1, tam_orig, out);
+            } else {
+                // Apenas copia o buffer
+                fwrite(buffer_comp, 1, tam_orig, out);
+            }
             fclose(out);
-            free(buffer);
+            free(buffer_comp);
+            free(buffer_orig);
         }
     }
 }

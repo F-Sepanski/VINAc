@@ -2,11 +2,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include "../include/vinac.h"
+#include "../include/lz/lz.h"
 
 int main(int argc, char *argv[])
 {
   if (argc < 3) {
-    printf("Uso: %s -ip|-p|-x <archive> [membro1 membro2 ...]\n", argv[0]);
+    printf("Uso: %s -ip|-p|-x|-c <archive> [membro1 membro2 ...]\n", argv[0]);
     return 1;
   }
 
@@ -47,18 +48,42 @@ int main(int argc, char *argv[])
         liberar_diretorio(&dir);
         return 1;
       }
-      fseek(archive, offset, SEEK_SET);
-      if (fwrite(buffer, 1, tamanho, archive) != (size_t)tamanho)
-      {
-        fprintf(stderr, "Erro ao escrever membro no archive\n");
+      // --- Compressão LZ (Fast) ---
+      unsigned char *comp_buffer = malloc(tamanho * 2 + 1); // espaço extra para compressão
+      unsigned int *work = malloc(sizeof(unsigned int) * (tamanho + 65536));
+      if (!comp_buffer || !work) {
+        fprintf(stderr, "Erro de memória para compressão\n");
         free(buffer);
+        free(comp_buffer);
+        free(work);
         fclose(archive);
         liberar_diretorio(&dir);
         return 1;
       }
-      adicionar_membro(&dir, argv[i], 0, tamanho, tamanho, 0, i - 3, offset);
-      offset += tamanho;
+      int usar_comprimido = 0;
+      int comp_size = LZ_CompressFast(buffer, comp_buffer, (unsigned int)tamanho, work);
+      if (comp_size > 0 && comp_size < tamanho) {
+        usar_comprimido = 1;
+      }
+      unsigned char *to_write = usar_comprimido ? comp_buffer : buffer;
+      long size_to_write = usar_comprimido ? comp_size : tamanho;
+      fseek(archive, offset, SEEK_SET);
+      if (fwrite(to_write, 1, size_to_write, archive) != (size_t)size_to_write)
+      {
+        fprintf(stderr, "Erro ao escrever membro no archive\n");
+        free(buffer);
+        free(comp_buffer);
+        free(work);
+        fclose(archive);
+        liberar_diretorio(&dir);
+        return 1;
+      }
+      adicionar_membro(&dir, argv[i], 0, tamanho, size_to_write, 0, i - 3, offset);
+      dir.membros[dir.total_membros-1].comprimido = usar_comprimido;
+      offset += size_to_write;
       free(buffer);
+      free(comp_buffer);
+      free(work);
     }
     // DEBUG: print total_membros antes de salvar
     printf("[DEBUG] Total membros antes de salvar: %d\n", dir.total_membros);
@@ -93,6 +118,27 @@ int main(int argc, char *argv[])
     fclose(archive);
     liberar_diretorio(&dir);
     printf("Extração concluída.\n");
+    return 0;
+  } else if (strcmp(argv[1], "-c") == 0) {
+    FILE *archive = fopen(archive_name_with_ext, "rb");
+    if (!archive) {
+      perror("Erro ao abrir archive para listagem");
+      return 1;
+    }
+    DiretorioArchive dir;
+    memset(&dir, 0, sizeof(DiretorioArchive));
+    if (ler_diretorio(archive, &dir) != 0) {
+      fprintf(stderr, "Erro ao ler diretório do archive\n");
+      fclose(archive);
+      return 1;
+    }
+    printf("%-4s %-30s %-6s %-12s %-12s %-20s %-6s\n", "ORD", "NOME", "UID", "TAM_ORIG", "TAM_DISCO", "DATA_MODIF", "COMP");
+    for (int i = 0; i < dir.total_membros; i++) {
+      MembroDir *m = &dir.membros[i];
+      printf("%-4d %-30s %-6d %-12ld %-12ld %-20ld %-6s\n", m->ordem, m->nome, m->uid, m->tamanho_original, m->tamanho_disco, m->data_modificacao, m->comprimido ? "sim" : "nao");
+    }
+    fclose(archive);
+    liberar_diretorio(&dir);
     return 0;
   } else {
     printf("Opção não reconhecida.\n");

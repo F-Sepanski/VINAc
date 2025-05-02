@@ -1,6 +1,6 @@
 CC = gcc
 CFLAGS = -Wall -Wextra -Iinclude
-SRC = src/main.c src/directory.c src/member.c src/archiver.c
+SRC = src/main.c src/directory.c src/member.c src/archiver.c src/lz/lz.c
 OBJ = $(SRC:.c=.o)
 TARGET = vinac
 
