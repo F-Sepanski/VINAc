@@ -33,9 +33,8 @@ int main(int argc, char *argv[])
       return 1;
     }
     DiretorioArchive dir;
-    dir.membros = NULL; // Prevent invalid free in inicializar_diretorio
     inicializar_diretorio(&dir);
-    long offset = sizeof(int) + sizeof(MembroDir) * (argc - 3); // Ajuste: diretório dinâmico
+    long offset = sizeof(DiretorioArchive); // Começa após o diretório
     for (int i = 3; i < argc; i++)
     {
       unsigned char *buffer = NULL;
@@ -44,7 +43,6 @@ int main(int argc, char *argv[])
       {
         fprintf(stderr, "Erro ao ler membro: %s\n", argv[i]);
         fclose(archive);
-        liberar_diretorio(&dir);
         return 1;
       }
       fseek(archive, offset, SEEK_SET);
@@ -53,22 +51,15 @@ int main(int argc, char *argv[])
         fprintf(stderr, "Erro ao escrever membro no archive\n");
         free(buffer);
         fclose(archive);
-        liberar_diretorio(&dir);
         return 1;
       }
       adicionar_membro(&dir, argv[i], 0, tamanho, tamanho, 0, i - 3, offset);
       offset += tamanho;
       free(buffer);
     }
-    // DEBUG: print total_membros antes de salvar
-    printf("[DEBUG] Total membros antes de salvar: %d\n", dir.total_membros);
-    // Garante que o ponteiro está no início antes de salvar o diretório
-    fseek(archive, 0, SEEK_SET);
     salvar_diretorio(archive, &dir);
-    int membros_salvos = dir.total_membros; // Salva antes de liberar
     fclose(archive);
-    liberar_diretorio(&dir);
-    printf("Arquivo %s criado com %d membro(s).\n", archive_name_with_ext, membros_salvos);
+    printf("Arquivo %s criado com %d membro(s).\n", archive_name_with_ext, dir.total_membros);
     return 0;
   } else if (strcmp(argv[1], "-x") == 0) {
     FILE *archive = fopen(archive_name_with_ext, "rb");
@@ -77,7 +68,6 @@ int main(int argc, char *argv[])
       return 1;
     }
     DiretorioArchive dir;
-    memset(&dir, 0, sizeof(DiretorioArchive)); // Garante inicialização
     if (ler_diretorio(archive, &dir) != 0) {
       fprintf(stderr, "Erro ao ler diretório do archive\n");
       fclose(archive);
@@ -91,7 +81,6 @@ int main(int argc, char *argv[])
     }
     extrair_arquivo(archive, &dir, nomes, n);
     fclose(archive);
-    liberar_diretorio(&dir);
     printf("Extração concluída.\n");
     return 0;
   } else {
