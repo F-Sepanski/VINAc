@@ -23,6 +23,14 @@ int main(int argc, char *argv[]) {
     }
     const char *option = argv[1];
     const char *archive = argv[2];
+    char archive_name[1100];
+    size_t arch_len = strlen(archive);
+    if (arch_len > 3 && strcmp(archive + arch_len - 3, ".vc") == 0) {
+        strncpy(archive_name, archive, sizeof(archive_name));
+        archive_name[sizeof(archive_name)-1] = '\0';
+    } else {
+        snprintf(archive_name, sizeof(archive_name), "%s.vc", archive);
+    }
 
     if (strcmp(option, "-ip") == 0 || strcmp(option, "-p") == 0) {
         // Inserir membros sem compressao
@@ -31,8 +39,8 @@ int main(int argc, char *argv[]) {
             return 1;
         }
         // Cria archive se nao existir
-        FILE *fp = fopen(archive, "rb");
-        if (!fp) archiver_create(archive);
+        FILE *fp = fopen(archive_name, "rb");
+        if (!fp) archiver_create(archive_name);
         else fclose(fp);
         for (int i = 3; i < argc; ++i) {
             FILE *mf = fopen(argv[i], "rb");
@@ -54,7 +62,7 @@ int main(int argc, char *argv[]) {
             // Usa apenas o nome do arquivo, sem path
             const char *slash = strrchr(argv[i], '/');
             const char *member_name = slash ? slash + 1 : argv[i];
-            if (archiver_add_member(archive, member_name, data, size) == 0)
+            if (archiver_add_member(archive_name, member_name, data, size) == 0)
                 printf("Membro %s inserido com sucesso.\n", member_name);
             else
                 printf("Falha ao inserir membro %s.\n", member_name);
@@ -67,7 +75,7 @@ int main(int argc, char *argv[]) {
             return 1;
         }
         for (int i = 3; i < argc; ++i) {
-            if (archiver_remove_member(archive, argv[i]) == 0)
+            if (archiver_remove_member(archive_name, argv[i]) == 0)
                 printf("Membro %s removido com sucesso.\n", argv[i]);
             else
                 printf("Falha ao remover membro %s.\n", argv[i]);
@@ -76,7 +84,7 @@ int main(int argc, char *argv[]) {
         // Extrair membros
         if (argc == 3) {
             // Extrair todos
-            FILE *fp = fopen(archive, "rb");
+            FILE *fp = fopen(archive_name, "rb");
             if (!fp) {
                 printf("Nao foi possivel abrir o archive.\n");
                 return 1;
@@ -88,7 +96,7 @@ int main(int argc, char *argv[]) {
             for (size_t i = 0; i < dir.count; ++i) {
                 char *data = NULL;
                 size_t size = 0;
-                if (archiver_extract_member(archive, dir.members[i].name, &data, &size) == 0) {
+                if (archiver_extract_member(archive_name, dir.members[i].name, &data, &size) == 0) {
                     // Extrai sempre para a pasta atual
                     FILE *out = fopen(dir.members[i].name, "wb");
                     if (out) {
@@ -108,7 +116,7 @@ int main(int argc, char *argv[]) {
                 const char *member_name = slash ? slash + 1 : argv[i];
                 char *data = NULL;
                 size_t size = 0;
-                if (archiver_extract_member(archive, member_name, &data, &size) == 0) {
+                if (archiver_extract_member(archive_name, member_name, &data, &size) == 0) {
                     FILE *out = fopen(member_name, "wb");
                     if (out) {
                         fwrite(data, 1, size, out);
@@ -123,7 +131,7 @@ int main(int argc, char *argv[]) {
         }
     } else if (strcmp(option, "-c") == 0) {
         // Listar conteudo do archive
-        FILE *fp = fopen(archive, "rb");
+        FILE *fp = fopen(archive_name, "rb");
         if (!fp) {
             printf("Nao foi possivel abrir o archive.\n");
             return 1;
@@ -142,7 +150,7 @@ int main(int argc, char *argv[]) {
         }
         const char *member = argv[3];
         const char *target = (strcmp(argv[4], "NULL") == 0) ? NULL : argv[4];
-        if (archiver_move_member(archive, member, target) == 0)
+        if (archiver_move_member(archive_name, member, target) == 0)
             printf("Membro %s movido com sucesso.\n", member);
         else
             printf("Falha ao mover membro %s.\n", member);

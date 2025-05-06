@@ -13,7 +13,7 @@ SRCS = $(SRC_DIR)/main.c \
 OBJS = $(SRCS:.c=.o)
 
 # Executável
-EXEC = vina
+EXEC = vinac
 
 # Compilador e flags
 CC = gcc

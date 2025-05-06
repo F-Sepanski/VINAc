@@ -40,50 +40,93 @@ int read_directory(FILE *fp, Directory *dir) {
     return 0;
 }
 
-// Função auxiliar: grava o diretório da RAM para o archive
-static int write_directory(FILE *fp, const Directory *dir) {
-    rewind(fp);
-    if (fwrite(&dir->count, sizeof(size_t), 1, fp) != 1) return -1;
+// Função auxiliar: reescreve todo o archive a partir do diretório e dos dados dos membros
+static int rewrite_archive(const char *archive_name, Directory *dir, const Member *new_member, const char *new_data, size_t new_data_size, int replace_idx, int insert_idx) {
+    (void)new_member;
+    (void)replace_idx;
+    char temp_name[1100];
+    snprintf(temp_name, sizeof(temp_name), "%s.tmp", archive_name);
+    FILE *fpw = fopen(temp_name, "wb+");
+    if (!fpw) return -1;
+    size_t dir_offset = sizeof(size_t) + dir->count * sizeof(Member);
+    size_t curr_offset = dir_offset;
+    // Primeiro, atualiza offsets dos membros
     for (size_t i = 0; i < dir->count; ++i) {
-        if (fwrite(&dir->members[i], sizeof(Member), 1, fp) != 1) return -1;
+        dir->members[i].offset = curr_offset;
+        curr_offset += dir->members[i].disk_size;
     }
+    // Escreve diretório
+    fwrite(&dir->count, sizeof(size_t), 1, fpw);
+    fwrite(dir->members, sizeof(Member), dir->count, fpw);
+    // Para cada membro, leia e escreva os dados usando buffer do tamanho do membro
+    for (size_t i = 0; i < dir->count; ++i) {
+        FILE *fpr = fopen(archive_name, "rb");
+        if (!fpr) {
+            fclose(fpw);
+            remove(temp_name);
+            return -1;
+        }
+        Directory tmp_dir;
+        directory_init(&tmp_dir);
+        read_directory(fpr, &tmp_dir);
+        // Encontra membro correspondente pelo nome
+        size_t j;
+        for (j = 0; j < tmp_dir.count; ++j) {
+            if (strcmp(tmp_dir.members[j].name, dir->members[i].name) == 0) break;
+        }
+        if (j < tmp_dir.count) {
+            // Membro já existia, copiar dados antigos
+            char *data = malloc(tmp_dir.members[j].disk_size);
+            fseek(fpr, tmp_dir.members[j].offset, SEEK_SET);
+            fread(data, 1, tmp_dir.members[j].disk_size, fpr);
+            fwrite(data, 1, tmp_dir.members[j].disk_size, fpw);
+            free(data);
+        } else if ((int)i == insert_idx && new_data && new_data_size > 0) {
+            // Novo membro, usar dados fornecidos
+            fwrite(new_data, 1, new_data_size, fpw);
+        }
+        fclose(fpr);
+    }
+    fclose(fpw);
+    remove(archive_name);
+    rename(temp_name, archive_name);
     return 0;
 }
 
 // Adiciona um membro ao archive (substitui se já existir)
 int archiver_add_member(const char *archive_name, const char *member_name, const char *data, size_t size) {
-    FILE *fp = fopen(archive_name, "r+b");
-    if (!fp) return -1;
+    FILE *fp = fopen(archive_name, "rb");
     Directory dir;
     directory_init(&dir);
-    read_directory(fp, &dir);
-    // Cria o membro
-    Member member;
-    create_member(&member, member_name, data, size);
-    member.disk_size = size; // Sem compressão
-    member.offset = sizeof(size_t) + (dir.count + 1) * sizeof(Member);
-    // Substitui se já existir
-    int found = 0;
+    if (fp) {
+        read_directory(fp, &dir);
+        fclose(fp);
+    }
+    int found = 0, replace_idx = -1;
     for (size_t i = 0; i < dir.count; ++i) {
         if (strcmp(dir.members[i].name, member_name) == 0) {
-            dir.members[i] = member;
             found = 1;
+            replace_idx = i;
             break;
         }
     }
-    if (!found) {
-        dir.members[dir.count] = member;
+    Member new_member;
+    create_member(&new_member, member_name, data, size);
+    new_member.disk_size = size;
+    new_member.size = size;
+    new_member.uid = getuid();
+    new_member.mod_time = time(NULL);
+    if (found) {
+        dir.members[replace_idx] = new_member;
+    } else {
+        dir.members[dir.count] = new_member;
         dir.members[dir.count].order = dir.count;
+        replace_idx = -1;
         dir.count++;
     }
-    // Grava diretório
-    write_directory(fp, &dir);
-    // Grava dados do membro ao final
-    fseek(fp, 0, SEEK_END);
-    fwrite(data, 1, size, fp);
-    fclose(fp);
-    delete_member(&member);
-    return 0;
+    int ret = rewrite_archive(archive_name, &dir, &new_member, data, size, replace_idx, found ? replace_idx : (int)dir.count-1);
+    delete_member(&new_member);
+    return ret;
 }
 
 // Extrai um membro do archive para a memória (aloca e retorna em output_data, output_size)
@@ -111,38 +154,39 @@ int archiver_extract_member(const char *archive_name, const char *member_name, c
 
 // Remove um membro do archive
 int archiver_remove_member(const char *archive_name, const char *member_name) {
-    FILE *fp = fopen(archive_name, "r+b");
+    FILE *fp = fopen(archive_name, "rb");
     if (!fp) return -1;
     Directory dir;
     directory_init(&dir);
     read_directory(fp, &dir);
-    int found = 0;
+    fclose(fp);
+    int found = 0, remove_idx = -1;
     for (size_t i = 0; i < dir.count; ++i) {
         if (strcmp(dir.members[i].name, member_name) == 0) {
-            // Remove do diretório
-            for (size_t j = i; j < dir.count - 1; ++j) {
-                dir.members[j] = dir.members[j + 1];
-                dir.members[j].order = j;
-            }
-            dir.count--;
             found = 1;
+            remove_idx = i;
             break;
         }
     }
-    if (found) write_directory(fp, &dir);
-    fclose(fp);
-    return found ? 0 : -1;
+    if (!found) return -1;
+    for (size_t i = remove_idx; i < dir.count - 1; ++i) {
+        dir.members[i] = dir.members[i + 1];
+        dir.members[i].order = i;
+    }
+    dir.count--;
+    // Reescreve archive sem o membro removido
+    return rewrite_archive(archive_name, &dir, NULL, NULL, 0, -1, -1);
 }
 
 // Move um membro no archive para imediatamente após o membro target (ou para o início se target_name for NULL)
 int archiver_move_member(const char *archive_name, const char *member_name, const char *target_name) {
-    FILE *fp = fopen(archive_name, "r+b");
+    FILE *fp = fopen(archive_name, "rb");
     if (!fp) return -1;
     Directory dir;
     directory_init(&dir);
     read_directory(fp, &dir);
-    directory_move_member(&dir, member_name, target_name);
-    write_directory(fp, &dir);
     fclose(fp);
-    return 0;
+    directory_move_member(&dir, member_name, target_name);
+    // Reescreve archive com nova ordem
+    return rewrite_archive(archive_name, &dir, NULL, NULL, 0, -1, -1);
 }
