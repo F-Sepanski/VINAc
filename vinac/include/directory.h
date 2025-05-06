@@ -1,39 +1,33 @@
 #ifndef DIRECTORY_H
 #define DIRECTORY_H
 
-#include <stdio.h>
-#include <stdlib.h>
+#include <stddef.h>
+#include "member.h"
 
-#define MAX_MEMBROS 128
-#define MAX_NOME 1024
+#define DIRECTORY_MAX_MEMBERS 128
 
-typedef struct
-{
-  char nome[MAX_NOME];
-  int uid;
-  long tamanho_original;
-  long tamanho_disco;
-  long data_modificacao;
-  int ordem;
-  long offset;
-} MembroDir;
-
-typedef struct
-{
-  int total_membros;
-  MembroDir membros[MAX_MEMBROS];
-} DiretorioArchive;
+// Estrutura que representa o diretório do archive
+typedef struct {
+    Member members[DIRECTORY_MAX_MEMBERS]; // Array de membros
+    size_t count;                          // Quantidade de membros
+} Directory;
 
 // Inicializa o diretório vazio
-void inicializar_diretorio(DiretorioArchive *dir);
+void directory_init(Directory *dir);
 
-// Adiciona um membro ao diretório
-int adicionar_membro(DiretorioArchive *dir, const char *nome, int uid, long tamanho_original, long tamanho_disco, long data_modificacao, int ordem, long offset);
+// Adiciona um membro ao diretório (copia o membro)
+void directory_add_member(Directory *dir, const Member *member);
 
-// Salva o diretório no início do arquivo
-int salvar_diretorio(FILE *arquivo, const DiretorioArchive *dir);
+// Remove um membro do diretório pelo nome
+void directory_remove_member(Directory *dir, const char *name);
 
-// Lê o diretório do início do arquivo
-int ler_diretorio(FILE *arquivo, DiretorioArchive *dir);
+// Lista os membros do diretório
+void directory_list_members(const Directory *dir);
+
+// Libera recursos associados ao diretório
+void directory_free(Directory *dir);
+
+// Move um membro para imediatamente após o membro target (ou para o início se target_name for NULL)
+void directory_move_member(Directory *dir, const char *member_name, const char *target_name);
 
 #endif // DIRECTORY_H

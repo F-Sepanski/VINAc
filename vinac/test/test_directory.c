@@ -3,95 +3,97 @@
 #include <stdlib.h>
 #include <string.h>
 #include "directory.h"
+#include "member.h"
 
 // Function prototypes for the test functions
-void test_add_member();
-void test_remove_member();
-void test_list_members();
+void test_directory_add_member();
+void test_directory_remove_member();
+void test_directory_list_members();
 
 int main() {
     // Run the tests
-    test_add_member();
-    test_remove_member();
-    test_list_members();
+    test_directory_add_member();
+    test_directory_remove_member();
+    test_directory_list_members();
 
     printf("All tests completed.\n");
     return 0;
 }
 
-void test_add_member() {
+void test_directory_add_member() {
     // Test adding a member to the directory
-    // Initialize a directory structure and add a member
     Directory dir;
-    init_directory(&dir);
+    directory_init(&dir);
+
+    const char *name = "test_file.txt";
+    const char *data = "conteudo de teste";
 
     Member member;
-    strcpy(member.name, "test_file.txt");
-    member.size = 1024;
-    member.uid = 1000;
-    member.mod_time = time(NULL);
+    create_member(&member, name, data, strlen(data));
 
-    add_member(&dir, &member);
+    directory_add_member(&dir, &member);
 
     // Verify that the member was added
-    if (dir.count == 1 && strcmp(dir.members[0].name, "test_file.txt") == 0) {
-        printf("test_add_member passed.\n");
+    if (dir.count == 1 && strcmp(dir.members[0].name, name) == 0 && dir.members[0].size == strlen(data)) {
+        printf("test_directory_add_member passed.\n");
     } else {
-        printf("test_add_member failed.\n");
+        printf("test_directory_add_member failed.\n");
     }
 
     // Clean up
-    free_directory(&dir);
+    directory_free(&dir);
+    delete_member(&member);
 }
 
-void test_remove_member() {
+void test_directory_remove_member() {
     // Test removing a member from the directory
     Directory dir;
-    init_directory(&dir);
+    directory_init(&dir);
+
+    const char *name = "test_file.txt";
+    const char *data = "conteudo de teste";
 
     Member member;
-    strcpy(member.name, "test_file.txt");
-    member.size = 1024;
-    member.uid = 1000;
-    member.mod_time = time(NULL);
+    create_member(&member, name, data, strlen(data));
 
-    add_member(&dir, &member);
-    remove_member(&dir, "test_file.txt");
+    directory_add_member(&dir, &member);
+    directory_remove_member(&dir, name);
 
     // Verify that the member was removed
     if (dir.count == 0) {
-        printf("test_remove_member passed.\n");
+        printf("test_directory_remove_member passed.\n");
     } else {
-        printf("test_remove_member failed.\n");
+        printf("test_directory_remove_member failed.\n");
     }
 
     // Clean up
-    free_directory(&dir);
+    directory_free(&dir);
+    delete_member(&member);
 }
 
-void test_list_members() {
+void test_directory_list_members() {
     // Test listing members in the directory
     Directory dir;
-    init_directory(&dir);
+    directory_init(&dir);
+
+    const char *name1 = "test_file1.txt";
+    const char *data1 = "conteudo1";
+    const char *name2 = "test_file2.txt";
+    const char *data2 = "conteudo2";
 
     Member member1, member2;
-    strcpy(member1.name, "test_file1.txt");
-    member1.size = 1024;
-    member1.uid = 1000;
-    member1.mod_time = time(NULL);
+    create_member(&member1, name1, data1, strlen(data1));
+    create_member(&member2, name2, data2, strlen(data2));
 
-    strcpy(member2.name, "test_file2.txt");
-    member2.size = 2048;
-    member2.uid = 1001;
-    member2.mod_time = time(NULL);
-
-    add_member(&dir, &member1);
-    add_member(&dir, &member2);
+    directory_add_member(&dir, &member1);
+    directory_add_member(&dir, &member2);
 
     // Capture the output of list_members
     printf("Listing members:\n");
-    list_members(&dir);
+    directory_list_members(&dir);
 
     // Clean up
-    free_directory(&dir);
+    directory_free(&dir);
+    delete_member(&member1);
+    delete_member(&member2);
 }

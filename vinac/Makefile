@@ -1,18 +1,34 @@
+# Diretórios
+SRC_DIR = src
+INC_DIR = include
+BIN_DIR = $(HOME)/login
+
+# Arquivos fonte
+SRCS = $(SRC_DIR)/main.c \
+       $(SRC_DIR)/archiver.c \
+       $(SRC_DIR)/directory.c \
+       $(SRC_DIR)/member.c
+
+# Objetos
+OBJS = $(SRCS:.c=.o)
+
+# Executável
+EXEC = vina
+
+# Compilador e flags
 CC = gcc
-CFLAGS = -Wall -Wextra -Iinclude
-SRC = src/main.c src/directory.c src/member.c src/archiver.c
-OBJ = $(SRC:.c=.o)
-TARGET = vinac
+CFLAGS = -Wall -Wextra -I$(INC_DIR)
+LDFLAGS =
 
-all: $(TARGET)
+all: $(EXEC)
 
-$(TARGET): $(OBJ)
-	$(CC) $(CFLAGS) -o $@ $(OBJ)
+$(EXEC): $(OBJS)
+	$(CC) $(CFLAGS) -o $(EXEC) $(OBJS) $(LDFLAGS)
 
-src/%.o: src/%.c
+%.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -f src/*.o $(TARGET)
+	rm -f $(SRC_DIR)/*.o $(EXEC)
 
 .PHONY: all clean

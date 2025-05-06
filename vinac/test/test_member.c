@@ -28,6 +28,7 @@ void test_create_member() {
     }
     
     printf("test_create_member passed.\n");
+    delete_member(&member);
 }
 
 // Test function for reading a member
@@ -51,6 +52,7 @@ void test_read_member() {
     
     free(read_data);
     printf("test_read_member passed.\n");
+    delete_member(&member);
 }
 
 // Test function for deleting a member

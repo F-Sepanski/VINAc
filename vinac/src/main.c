@@ -1,90 +1,154 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "../include/vinac.h"
+#include "../include/archiver.h"
+#include "../include/directory.h"
+#include "../include/member.h"
 
-int main(int argc, char *argv[])
-{
-  if (argc < 3) {
-    printf("Uso: %s -ip|-p|-x <archive> [membro1 membro2 ...]\n", argv[0]);
-    return 1;
-  }
+void print_usage() {
+    printf("Uso: vinac <opcao> <archive> [membro1 membro2 ...]\n");
+    printf("Opcoes:\n");
+    printf("  -ip, -p   : Insere/acrescenta membros sem compressao\n");
+    printf("  -ic, -i   : Insere/acrescenta membros com compressao\n");
+    printf("  -m membro target: Move membro para apos target (ou para o inicio se target for NULL)\n");
+    printf("  -x        : Extrai membros indicados (ou todos se nao indicados)\n");
+    printf("  -r        : Remove membros indicados\n");
+    printf("  -c        : Lista o conteudo do archive\n");
+}
 
-  // Garante que o arquivo de saída tenha extensão .vc
-  char archive_name_with_ext[1100];
-  const char *archive_name = argv[2];
-  size_t len = strlen(archive_name);
-  if (len >= 3 && strcmp(archive_name + len - 3, ".vc") == 0) {
-    strncpy(archive_name_with_ext, archive_name, sizeof(archive_name_with_ext) - 1);
-    archive_name_with_ext[sizeof(archive_name_with_ext) - 1] = '\0';
-  } else {
-    snprintf(archive_name_with_ext, sizeof(archive_name_with_ext), "%s.vc", archive_name);
-  }
-
-  if (strcmp(argv[1], "-ip") == 0 || strcmp(argv[1], "-p") == 0) {
-    if (argc < 4) {
-      printf("Uso: %s -ip <archive> [membro1 membro2 ...]\n", argv[0]);
-      return 1;
-    }
-    FILE *archive = fopen(archive_name_with_ext, "wb+");
-    if (!archive)
-    {
-      perror("Erro ao criar arquivo archive");
-      return 1;
-    }
-    DiretorioArchive dir;
-    inicializar_diretorio(&dir);
-    long offset = sizeof(DiretorioArchive); // Começa após o diretório
-    for (int i = 3; i < argc; i++)
-    {
-      unsigned char *buffer = NULL;
-      long tamanho = 0;
-      if (ler_arquivo(argv[i], &buffer, &tamanho) != 0)
-      {
-        fprintf(stderr, "Erro ao ler membro: %s\n", argv[i]);
-        fclose(archive);
+int main(int argc, char *argv[]) {
+    if (argc < 3) {
+        print_usage();
         return 1;
-      }
-      fseek(archive, offset, SEEK_SET);
-      if (fwrite(buffer, 1, tamanho, archive) != (size_t)tamanho)
-      {
-        fprintf(stderr, "Erro ao escrever membro no archive\n");
-        free(buffer);
-        fclose(archive);
+    }
+    const char *option = argv[1];
+    const char *archive = argv[2];
+
+    if (strcmp(option, "-ip") == 0 || strcmp(option, "-p") == 0) {
+        // Inserir membros sem compressao
+        if (argc < 4) {
+            printf("Nenhum membro especificado para inserir.\n");
+            return 1;
+        }
+        // Cria archive se nao existir
+        FILE *fp = fopen(archive, "rb");
+        if (!fp) archiver_create(archive);
+        else fclose(fp);
+        for (int i = 3; i < argc; ++i) {
+            FILE *mf = fopen(argv[i], "rb");
+            if (!mf) {
+                printf("Nao foi possivel abrir o membro: %s\n", argv[i]);
+                continue;
+            }
+            fseek(mf, 0, SEEK_END);
+            size_t size = ftell(mf);
+            fseek(mf, 0, SEEK_SET);
+            char *data = malloc(size);
+            if (!data) {
+                printf("Memoria insuficiente para ler %s\n", argv[i]);
+                fclose(mf);
+                continue;
+            }
+            fread(data, 1, size, mf);
+            fclose(mf);
+            // Usa apenas o nome do arquivo, sem path
+            const char *slash = strrchr(argv[i], '/');
+            const char *member_name = slash ? slash + 1 : argv[i];
+            if (archiver_add_member(archive, member_name, data, size) == 0)
+                printf("Membro %s inserido com sucesso.\n", member_name);
+            else
+                printf("Falha ao inserir membro %s.\n", member_name);
+            free(data);
+        }
+    } else if (strcmp(option, "-r") == 0) {
+        // Remover membros
+        if (argc < 4) {
+            printf("Nenhum membro especificado para remover.\n");
+            return 1;
+        }
+        for (int i = 3; i < argc; ++i) {
+            if (archiver_remove_member(archive, argv[i]) == 0)
+                printf("Membro %s removido com sucesso.\n", argv[i]);
+            else
+                printf("Falha ao remover membro %s.\n", argv[i]);
+        }
+    } else if (strcmp(option, "-x") == 0) {
+        // Extrair membros
+        if (argc == 3) {
+            // Extrair todos
+            FILE *fp = fopen(archive, "rb");
+            if (!fp) {
+                printf("Nao foi possivel abrir o archive.\n");
+                return 1;
+            }
+            Directory dir;
+            directory_init(&dir);
+            extern int read_directory(FILE*, Directory*); // hack: tornar visível
+            read_directory(fp, &dir);
+            for (size_t i = 0; i < dir.count; ++i) {
+                char *data = NULL;
+                size_t size = 0;
+                if (archiver_extract_member(archive, dir.members[i].name, &data, &size) == 0) {
+                    // Extrai sempre para a pasta atual
+                    FILE *out = fopen(dir.members[i].name, "wb");
+                    if (out) {
+                        fwrite(data, 1, size, out);
+                        fclose(out);
+                        printf("Extraido: %s\n", dir.members[i].name);
+                    }
+                    free(data);
+                }
+            }
+            fclose(fp);
+        } else {
+            // Extrair membros especificados
+            for (int i = 3; i < argc; ++i) {
+                // Usa apenas o nome do arquivo, sem path
+                const char *slash = strrchr(argv[i], '/');
+                const char *member_name = slash ? slash + 1 : argv[i];
+                char *data = NULL;
+                size_t size = 0;
+                if (archiver_extract_member(archive, member_name, &data, &size) == 0) {
+                    FILE *out = fopen(member_name, "wb");
+                    if (out) {
+                        fwrite(data, 1, size, out);
+                        fclose(out);
+                        printf("Extraido: %s\n", member_name);
+                    }
+                    free(data);
+                } else {
+                    printf("Falha ao extrair membro %s.\n", member_name);
+                }
+            }
+        }
+    } else if (strcmp(option, "-c") == 0) {
+        // Listar conteudo do archive
+        FILE *fp = fopen(archive, "rb");
+        if (!fp) {
+            printf("Nao foi possivel abrir o archive.\n");
+            return 1;
+        }
+        Directory dir;
+        directory_init(&dir);
+        extern int read_directory(FILE*, Directory*); // hack: tornar visível
+        read_directory(fp, &dir);
+        directory_list_members(&dir);
+        fclose(fp);
+    } else if (strcmp(option, "-m") == 0) {
+        // Mover membro
+        if (argc < 5) {
+            printf("Uso: vinac -m <archive> <membro> <target|NULL>\n");
+            return 1;
+        }
+        const char *member = argv[3];
+        const char *target = (strcmp(argv[4], "NULL") == 0) ? NULL : argv[4];
+        if (archiver_move_member(archive, member, target) == 0)
+            printf("Membro %s movido com sucesso.\n", member);
+        else
+            printf("Falha ao mover membro %s.\n", member);
+    } else {
+        print_usage();
         return 1;
-      }
-      adicionar_membro(&dir, argv[i], 0, tamanho, tamanho, 0, i - 3, offset);
-      offset += tamanho;
-      free(buffer);
     }
-    salvar_diretorio(archive, &dir);
-    fclose(archive);
-    printf("Arquivo %s criado com %d membro(s).\n", archive_name_with_ext, dir.total_membros);
     return 0;
-  } else if (strcmp(argv[1], "-x") == 0) {
-    FILE *archive = fopen(archive_name_with_ext, "rb");
-    if (!archive) {
-      perror("Erro ao abrir archive para extração");
-      return 1;
-    }
-    DiretorioArchive dir;
-    if (ler_diretorio(archive, &dir) != 0) {
-      fprintf(stderr, "Erro ao ler diretório do archive\n");
-      fclose(archive);
-      return 1;
-    }
-    const char **nomes = NULL;
-    int n = 0;
-    if (argc > 3) {
-      nomes = (const char**)&argv[3];
-      n = argc - 3;
-    }
-    extrair_arquivo(archive, &dir, nomes, n);
-    fclose(archive);
-    printf("Extração concluída.\n");
-    return 0;
-  } else {
-    printf("Opção não reconhecida.\n");
-    return 1;
-  }
 }
