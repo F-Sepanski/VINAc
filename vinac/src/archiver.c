@@ -43,49 +43,47 @@ int read_directory(FILE *fp, Directory *dir) {
 // Função auxiliar: reescreve todo o archive a partir do diretório e dos dados dos membros
 static int rewrite_archive(const char *archive_name, Directory *dir, const Member *new_member, const char *new_data, size_t new_data_size, int replace_idx, int insert_idx) {
     (void)new_member;
-    (void)replace_idx;
+    (void)insert_idx;
     char temp_name[1100];
     snprintf(temp_name, sizeof(temp_name), "%s.tmp", archive_name);
     FILE *fpw = fopen(temp_name, "wb+");
     if (!fpw) return -1;
     size_t dir_offset = sizeof(size_t) + dir->count * sizeof(Member);
     size_t curr_offset = dir_offset;
-    // Primeiro, atualiza offsets dos membros
+    // Atualiza offsets dos membros
     for (size_t i = 0; i < dir->count; ++i) {
         dir->members[i].offset = curr_offset;
         curr_offset += dir->members[i].disk_size;
     }
-    // Escreve diretório
     fwrite(&dir->count, sizeof(size_t), 1, fpw);
     fwrite(dir->members, sizeof(Member), dir->count, fpw);
-    // Para cada membro, leia e escreva os dados usando buffer do tamanho do membro
     for (size_t i = 0; i < dir->count; ++i) {
-        FILE *fpr = fopen(archive_name, "rb");
-        if (!fpr) {
-            fclose(fpw);
-            remove(temp_name);
-            return -1;
-        }
-        Directory tmp_dir;
-        directory_init(&tmp_dir);
-        read_directory(fpr, &tmp_dir);
-        // Encontra membro correspondente pelo nome
-        size_t j;
-        for (j = 0; j < tmp_dir.count; ++j) {
-            if (strcmp(tmp_dir.members[j].name, dir->members[i].name) == 0) break;
-        }
-        if (j < tmp_dir.count) {
-            // Membro já existia, copiar dados antigos
-            char *data = malloc(tmp_dir.members[j].disk_size);
-            fseek(fpr, tmp_dir.members[j].offset, SEEK_SET);
-            fread(data, 1, tmp_dir.members[j].disk_size, fpr);
-            fwrite(data, 1, tmp_dir.members[j].disk_size, fpw);
-            free(data);
-        } else if ((int)i == insert_idx && new_data && new_data_size > 0) {
-            // Novo membro, usar dados fornecidos
+        if ((int)i == replace_idx && new_data && new_data_size > 0) {
+            // Escreve o novo conteúdo do membro atualizado
             fwrite(new_data, 1, new_data_size, fpw);
+        } else {
+            FILE *fpr = fopen(archive_name, "rb");
+            if (!fpr) {
+                fclose(fpw);
+                remove(temp_name);
+                return -1;
+            }
+            Directory tmp_dir;
+            directory_init(&tmp_dir);
+            read_directory(fpr, &tmp_dir);
+            size_t j;
+            for (j = 0; j < tmp_dir.count; ++j) {
+                if (strcmp(tmp_dir.members[j].name, dir->members[i].name) == 0) break;
+            }
+            if (j < tmp_dir.count) {
+                char *data = malloc(tmp_dir.members[j].disk_size);
+                fseek(fpr, tmp_dir.members[j].offset, SEEK_SET);
+                fread(data, 1, tmp_dir.members[j].disk_size, fpr);
+                fwrite(data, 1, tmp_dir.members[j].disk_size, fpw);
+                free(data);
+            }
+            fclose(fpr);
         }
-        fclose(fpr);
     }
     fclose(fpw);
     remove(archive_name);
@@ -102,11 +100,11 @@ int archiver_add_member(const char *archive_name, const char *member_name, const
         read_directory(fp, &dir);
         fclose(fp);
     }
-    int found = 0, replace_idx = -1;
+    int found = 0, found_idx = 0;
     for (size_t i = 0; i < dir.count; ++i) {
         if (strcmp(dir.members[i].name, member_name) == 0) {
             found = 1;
-            replace_idx = i;
+            found_idx = i;
             break;
         }
     }
@@ -117,14 +115,20 @@ int archiver_add_member(const char *archive_name, const char *member_name, const
     new_member.uid = getuid();
     new_member.mod_time = time(NULL);
     if (found) {
-        dir.members[replace_idx] = new_member;
+        // Atualiza o membro mantendo a ordem original
+        int original_order = dir.members[found_idx].order;
+        dir.members[found_idx] = new_member;
+        dir.members[found_idx].order = original_order;
     } else {
         dir.members[dir.count] = new_member;
         dir.members[dir.count].order = dir.count;
-        replace_idx = -1;
         dir.count++;
     }
-    int ret = rewrite_archive(archive_name, &dir, &new_member, data, size, replace_idx, found ? replace_idx : (int)dir.count-1);
+    // Após qualquer modificação, atualiza o campo order de todos os membros para garantir unicidade e consistência
+    for (size_t i = 0; i < dir.count; ++i) {
+        dir.members[i].order = i;
+    }
+    int ret = rewrite_archive(archive_name, &dir, &new_member, data, size, found ? found_idx : -1, found ? found_idx : (int)dir.count-1);
     delete_member(&new_member);
     return ret;
 }
